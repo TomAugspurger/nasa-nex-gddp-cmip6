@@ -1,16 +1,57 @@
-ARG STACTOOLS_VERSION=latest
-FROM ghcr.io/stac-utils/stactools:$STACTOOLS_VERSION
+FROM continuumio/miniconda3 as base
 
-ARG DOCKER_NAMESPACE_PACKAGE_DIR
-ARG DOCKER_WORKDIR
-ENV PYTHON_VERSION=3.9
-WORKDIR $DOCKER_WORKDIR
+COPY environment.yml ./
+RUN conda update conda && \
+    conda env update -f environment.yml -n base && \
+    conda clean -af
 
-# For caching purposes, install dependencies but remove the actual package
-COPY pyproject.toml setup.cfg ./
-COPY src/$DOCKER_NAMESPACE_PACKAGE_DIR/__init__.py src/$DOCKER_NAMESPACE_PACKAGE_DIR/
+
+FROM base as dependencies
+
+ENV PATH="/opt/venv/bin:$PATH"
+WORKDIR /opt/stactools-nasa-nex-gddp-cmip6
+COPY --from=base /opt/conda /opt/conda
+COPY pyproject.toml ./
+COPY src/stactools/nasa_nex_gddp_cmip6/__init__.py src/stactools/nasa_nex_gddp_cmip6/
+RUN apt-get -y -q update \
+    && apt-get -y -q install build-essential \
+    && rm -rf /var/lib/apt/lists/
+RUN python -m venv /opt/venv
 RUN pip install . \
-    && rm -r /opt/conda/lib/python$PYTHON_VERSION/site-packages/$DOCKER_NAMESPACE_PACKAGE_DIR
+    && ls /opt/venv \
+    && rm -r /opt/venv/lib/python3.11/site-packages/stactools/nasa_nex_gddp_cmip6
 
+
+FROM dependencies as builder
+
+ENV PATH="/opt/venv/bin:$PATH"
+WORKDIR /opt/stactools-nasa-nex-gddp-cmip6
+COPY --from=base /opt/conda /opt/conda
+COPY --from=dependencies /opt/venv /opt/venv
+COPY pyproject.toml ./
 COPY src ./src
-RUN pip install .
+RUN pip install -U pip \
+    && pip install .
+WORKDIR /
+RUN rm -rf /opt/stactools-nasa-nex-gddp-cmip6
+CMD [ "stac", "nasanexgddpcmip6" ]
+
+
+FROM dependencies as dev-dependencies
+
+ENV PATH="/opt/venv/bin:$PATH"
+WORKDIR /opt/stactools-nasa-nex-gddp-cmip6
+COPY --from=dependencies /opt/venv /opt/venv
+COPY pyproject.toml .
+RUN pip install -e '.[dev]' \
+    && git init
+
+
+FROM dev-dependencies as dev-builder
+
+ENV PATH="/opt/venv/bin:$PATH"
+WORKDIR /opt/stactools-nasa-nex-gddp-cmip6
+COPY --from=base /opt/conda /opt/conda
+COPY --from=dependencies /opt/venv /opt/venv
+COPY . .
+CMD [ "stac", "nasanexgddpcmip6" ]
