@@ -1,0 +1,19 @@
+#!/usr/bin/env python
+
+import shutil
+from pathlib import Path
+
+import stactools.nasa_nex_gddp_cmip6.stac
+from pystac import CatalogType
+
+root = Path(__file__).parents[1]
+examples = root / "examples"
+
+collection = stactools.nasa_nex_gddp_cmip6.stac.create_collection()
+collection.update_extent_from_items()
+collection.normalize_hrefs(str(examples))
+collection.make_all_asset_hrefs_relative()
+if examples.exists():
+    shutil.rmtree(examples)
+    examples.mkdir()
+collection.save(CatalogType.SELF_CONTAINED)
